@@ -3,18 +3,18 @@ library(gstat)
 library(spsann)
 
 #Load grid with EMdata; the nodes of this grid are the potential sampling locations 
-grid <- read.csv(file="d:/UserData/Sampling4DSM/Data/Uzbekistan/EMUzbekistan_25m.csv")
+grid <- read.csv(file="Data/EMUzbekistan_25m.csv")
 coordinates(grid) <- ~x1+x2
 gridded(grid)<-TRUE
 boundary <- rgeos::gUnaryUnion(as(grid, "SpatialPolygons"))
 
-#residual variogram, see PooledSpatialVariogram.R
+# residual variogram
 variogram <- vgm(nugget=0.1, psill=0.075, "Exp", range=100)
 
 gridded(grid)<-FALSE
 candi <- data.frame(x=coordinates(grid)[,1],y=coordinates(grid)[,2])
 covars <- as(grid,"data.frame")
-covars <- covars[,c(2,3,1)]
+covars <- covars[,c(3,4,1)]
 names(covars)[c(1,2)] <- c("x","y")
 
 schedule <- scheduleSPSANN(initial.acceptance = 0.8,initial.temperature = 0.002,
@@ -28,7 +28,7 @@ schedule <- scheduleSPSANN(initial.acceptance = 0.8,initial.temperature = 0.002,
 set.seed(321)
 res <- optimMKV(
   points = 50, candi = candi, covars=covars, vgm = variogram,
-  eqn = z ~ EM, plotit = TRUE, schedule = schedule,boundary=boundary)
+  eqn = z ~ lnEM1m, plotit = TRUE, schedule = schedule,boundary=boundary)
 save(res,file="ModelbasedSample_KED_Uzbekistan_spsann.RData")
 
 

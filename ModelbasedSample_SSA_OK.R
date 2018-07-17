@@ -15,7 +15,7 @@ gridded(grid) <- T
 load(file="Data/DataThreeWoredasEthiopia.RData")
 
 # Subsample legacy sample (cellsize of grid = 1 km x 1 km)
-legacy <- remove.duplicates(d,zero=1,remove.second=T)
+legacy <- remove.duplicates(priordataEthiopia,zero=1,remove.second=T)
 legacy <- as(legacy,"SpatialPoints")
 
 
@@ -43,7 +43,7 @@ infill <- as(mySample, "SpatialPoints")
 infill <- infill[ids,]
 
 # Estimate the variogram from legacy sample
-vg <- variogram(SOC~1,d)
+vg <- variogram(SOC~1,priordataEthiopia)
 plot(vg)
 vgmfit <- fit.variogram(vg,model=vgm(psill=0.6, "Sph", range=40,nugget=0.6))
 print(vgmfit)
@@ -65,7 +65,7 @@ annealingResult <- anneal.K(
     )
 
 save(annealingResult,file="ModelBasedSample_OK_Ethiopia.RData")
-load("d:/UserData/Sampling4DSM/Rscripts/ModelBasedSample_OK_Ethiopia.RData")
+load("ModelBasedSample_OK_Ethiopia.RData")
 
 library(ggplot2)
 infillSampledf <-data.frame(annealingResult$optSample)

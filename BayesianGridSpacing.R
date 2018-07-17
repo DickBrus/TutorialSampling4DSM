@@ -25,7 +25,8 @@ ll <-function(pars) {
     XCy <- XC %*% y
     XCX <- XC %*% X
     betahat <- solve(XCX , XCy)
-    e <- y - as.numeric(betahat)
+    mu <- as.numeric(t(betahat)%*%t(X))
+    e <- y - mu
     eC <- crossprod(e, C_inv)
     eCe <- eC %*% e
     logDetC <- determinant(x = C, logarithm = TRUE)$modulus
@@ -155,5 +156,5 @@ pdf("ProportionvsGridspacing_Ethiopia.pdf",width=5,height=5)
 ggplot(df)+
   geom_line(mapping=aes(x=spacing,y=F),se=FALSE,colour="red")+
   scale_x_continuous(breaks=spacing,name="Grid spacing")+
-  scale_y_continuous(limits=c(0,1),breaks=seq(from=0,to=1,by=0.2),name="Proprortion of MCMC samples")
+  scale_y_continuous(limits=c(0,1),breaks=seq(from=0,to=1,by=0.2),name="Proportion of MCMC samples")
 dev.off()
