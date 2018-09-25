@@ -31,6 +31,7 @@ ntot<-n+length(legacy)
 # Grid does not have projection attributes, whereas legacy does. Remove projection attributes of legacy
 proj4string(legacy)<- NA_character_
 
+set.seed(314)
 myStrata <- stratify(grid,nStrata = ntot, priorPoints=legacy,equalArea=FALSE, nTry=1)
 mySample <- spsample(myStrata)
 plot(myStrata, mySample)
@@ -43,7 +44,7 @@ infill <- as(mySample, "SpatialPoints")
 infill <- infill[ids,]
 
 # Estimate the variogram from legacy sample
-vg <- variogram(SOC~1,priordataEthiopia)
+vg <- variogram(SOC~1,priordataEthiopia,cutoff=20)
 plot(vg)
 vgmfit <- fit.variogram(vg,model=vgm(psill=0.6, "Sph", range=40,nugget=0.6))
 print(vgmfit)
@@ -60,7 +61,8 @@ annealingResult <- anneal.K(
     coolingRate = 0.9,
     maxAccepted = 2*nrow(coordinates(infill)),
     maxPermuted = 2*nrow(coordinates(infill)),
-    maxNoChange = 2*nrow(coordinates(infill)),
+#    maxNoChange = 2*nrow(coordinates(infill)),
+    maxNoChange = 10,
     verbose = "TRUE"
     )
 

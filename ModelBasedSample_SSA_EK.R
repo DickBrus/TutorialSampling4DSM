@@ -61,7 +61,7 @@ annealingResult <- anneal.EK(
   p = myevalsample,
   pars=pars,
   perturbation=perturbation,
-  criterion="logde",
+  criterion="logdet",
   initialTemperature = 0.05, #logdet
 #  initialTemperature = 0.005, #VV
 #  initialTemperature = 0.002, #AV
