@@ -1,5 +1,6 @@
 library(gstat)
 library(ggplot2)
+library(sp)
 
 # Load data on soil organic carbon
 load(file="Data/DataThreeWoredasEthiopia.RData")
@@ -72,7 +73,7 @@ result<-data.frame(spacing,MKV,MMKV,samplesize,Msize)
 
 library(ggplot2)
 ggplot(data=result)+
-  geom_point(mapping=aes(x=spacing,y=MKV),size=3)+
+  geom_point(mapping=aes(x=spacing,y=MMKV),size=3)+
   scale_x_continuous(name="Spacing (km)")+
   scale_y_continuous(name="Mean Kriging Variance")
 
