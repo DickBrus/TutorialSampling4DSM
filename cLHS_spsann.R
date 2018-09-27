@@ -1,7 +1,7 @@
 library(sp)
-library(spsann)
 library(reshape)
 library(ggplot2)
+library(spsann)
 
 #Read data
 
