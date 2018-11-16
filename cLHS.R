@@ -5,6 +5,7 @@
 
 library(spcosa)
 library(sp)
+library(ggplot2)
 
 # Source annealing functions
 source('Functions4SSA.R')

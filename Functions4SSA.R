@@ -597,7 +597,7 @@ getCriterion.cLHS<-function(d,g,lb,wO1,R)  {
   #Determine in which stratum the sampling locations are
   stratum<-matrix(nrow=length(d),ncol=ncol(d))
   for ( i in 1:ncol(d) ) {
-    stratum[,i]<-findInterval(as.data.frame(d[,i])[,1],lb[,i])
+    stratum[,i]<-findInterval(as.data.frame(d[,i])[,1],lb[,i],left.open = TRUE)
   }
   
   #count number of points in marginal strata
