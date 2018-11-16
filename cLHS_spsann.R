@@ -55,9 +55,10 @@ lb <- lb[-length(probs),]
 mySample <- res$points
 mySample <- data.frame(mySample,grd[mySample$id,3:7])
 
+p<-ncol(covars)
 stratum<-matrix(nrow=nrow(mySample),ncol=p)
 for ( i in 1:p) {
-  stratum[,i]<-findInterval(mySample[,i+3],lb[,i])
+  stratum[,i]<-findInterval(mySample[,i+4],lb[,i])
 }
 
 counts<-matrix(nrow=nrow(lb),ncol=p)
