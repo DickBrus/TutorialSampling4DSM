@@ -1,6 +1,6 @@
-# NOTE THAT, CONTRARY TO WHAT IS STATED IN THE GEODERMA PAPER, SUPPLEMENTING AN EXISTING SAMPLE (LEGACY SAMPLE)
-# WITH A CONDITIONED LATIN HYPERCUBE SAMPLE CAN ALSO BE DONE WITH R PACKAGE SPSANN!
-# SEE ARGUMENT points OF FUNCTION optimCLHS
+# NOTE THAT, CONTRARY TO WHAT IS STATED IN THE GEODERMA PAPER, SUPPLEMENTING 
+# AN EXISTING SAMPLE (LEGACY SAMPLE) WITH A CONDITIONED LATIN HYPERCUBE SAMPLE
+# CAN ALSO BE DONE WITH R PACKAGE SPSANN! SEE ARGUMENT points OF FUNCTION optimCLHS
 
 
 library(spcosa)
@@ -115,7 +115,7 @@ mySample <-rbind(legacy,optSample)
 p<-length(col.cov)
 stratum<-matrix(nrow=nrow(mySample),ncol=p)
 for ( i in 1:p) {
-  stratum[,i]<-findInterval(mySample[,i],lb[,i])
+  stratum[,i]<-findInterval(mySample[,i],lb[,i],left.open = TRUE)
 }
 
 counts<-matrix(nrow=nrow(lb),ncol=p)

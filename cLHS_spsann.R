@@ -58,7 +58,7 @@ mySample <- data.frame(mySample,grd[mySample$id,3:7])
 p<-ncol(covars)
 stratum<-matrix(nrow=nrow(mySample),ncol=p)
 for ( i in 1:p) {
-  stratum[,i]<-findInterval(mySample[,i+4],lb[,i])
+  stratum[,i]<-findInterval(mySample[,i+4],lb[,i],left.open = TRUE)
 }
 
 counts<-matrix(nrow=nrow(lb),ncol=p)
