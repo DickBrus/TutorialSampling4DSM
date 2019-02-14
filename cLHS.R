@@ -51,9 +51,8 @@ mySample <- as(mySample, "SpatialPoints")
 mySample <- mySample[ids,]
 
 # Compute lower bounds of marginal strata
-by=1/ntot
-probs<-seq(from=0,to=1,by=by)
-lb <- apply(grd[,3:7],MARGIN=2,FUN=function(x) quantile(x,probs=probs,type=7))
+probs<-seq(from=0,to=1,length.out=samplesize+1)
+lb <- apply(grd[,3:7],MARGIN=2,FUN=function(x) quantile(x,probs=probs,type=3))
 lb <- lb[-length(probs),]
 
 #set relative weight of O1 for computing the LHS criterion (O1 is for coverage of marginal strata of covariates); 1-W01  is the relative weight for O3 (for correlation)
@@ -109,29 +108,3 @@ ggplot(data=grd) +
   geom_point(data=as.data.frame(legacy), mapping = aes(x = ndvi, y = cti), colour = "green",size=2) +
   scale_x_continuous(name = "ndvi") +
   scale_y_continuous(name = "cti")
-
-#Plot marginal sample sizes
-
-mySample <-rbind(legacy,optSample)
-p<-length(col.cov)
-stratum<-matrix(nrow=nrow(mySample),ncol=p)
-for ( i in 1:p) {
-  stratum[,i]<-findInterval(mySample[,i],lb[,i],left.open = TRUE)
-}
-
-counts<-matrix(nrow=nrow(lb),ncol=p)
-for (i in 1:nrow(lb)) {
-  counts[i,]<-apply(stratum, MARGIN=2, function(x,i) sum(x==i), i=i)
-}
-
-index<-seq(1:ntot)
-countsdf<-as.data.frame(counts)
-names(countsdf)<-names(grd[col.cov])
-library(reshape)
-countslf<-melt(countsdf)
-countslf$index<-rep(index,times=5)
-  ggplot(countslf) +
-  geom_point(mapping = aes(x=index,y = value), colour = "black",size=1) +
-  facet_wrap(~variable) +
-  scale_x_continuous(name = "Index") +
-  scale_y_continuous(name = "Sample size",breaks=c(0,1,2,3,4))

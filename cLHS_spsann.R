@@ -47,34 +47,36 @@ res <- optimCLHS(
 
 #Compute number of points in marginal strata
 
-by=1/samplesize
-probs<-seq(from=0,to=1,by=by)
-lb <- apply(grd[,3:7],MARGIN=2,FUN=function(x) quantile(x,probs=probs,type=7))
-lb <- lb[-length(probs),]
+probs<-seq(from=0,to=1,length.out = samplesize + 1)
+breaks <- apply(covars,MARGIN=2,FUN=function(x) quantile(x,probs=probs,type=3))
 
-mySample <- res$points
-mySample <- data.frame(mySample,grd[mySample$id,3:7])
+mySample <- data.frame(grd[res$points$id,1:7])
 
-p<-ncol(covars)
-stratum<-matrix(nrow=nrow(mySample),ncol=p)
-for ( i in 1:p) {
-  stratum[,i]<-findInterval(mySample[,i+4],lb[,i],left.open = TRUE)
-}
+counts <- lapply(1:ncol(covars), function (i) 
+  hist(mySample[, i+2], breaks[,i], plot = FALSE)$counts
+)
 
-counts<-matrix(nrow=nrow(lb),ncol=p)
-for (i in 1:nrow(lb)) {
-  counts[i,]<-apply(stratum, MARGIN=2, function(x,i) sum(x==i), i=i)
-}
+countslf <- data.frame(counts=unlist(counts))
+countslf$covariate <- rep(names(covars),each=samplesize)
+countslf$stratum<-rep(seq(1:samplesize),times=ncol(covars))
+
+#Plot the sample sizes in the marginal strata
+
+ggplot(countslf) +
+  geom_point(mapping = aes(x=stratum,y = counts), colour = "black",size=1) +
+  facet_wrap(~covariate) +
+  scale_x_continuous(name = "Stratum") +
+  scale_y_continuous(name = "Sample size",breaks=c(0,1,2,3))
 
 #Compute O1 criterion (as a sum, not as a mean)
 
-(sum(abs(counts-1)))
+(sum(abs(countslf$counts-1)))
 
 #Plot the optimized sample in geographical space.
 pdf(file = "cLHS_HunterValley.pdf", width = 7, height = 7)
 ggplot(data=grd) +
     geom_tile(mapping = aes(x = x1, y = x2, fill = cti))+  
-    geom_point(data = mySample, mapping = aes(x = x, y = y), colour = "black",size=2) +
+    geom_point(data = mySample, mapping = aes(x = x1, y = x2), colour = "black",size=2) +
     scale_x_continuous(name = "Easting (km)") +
     scale_y_continuous(name = "Northing (km)") +    
     scale_fill_gradient(name="cti",low = "darkblue", high = "red")+
@@ -92,17 +94,3 @@ ggplot(data=grd) +
         scale_y_continuous(name = "Elevation") +
         scale_x_continuous(name = "CTI")
 dev.off()
-
-#Plot the sample sizes in the marginal strata
-
-index<-seq(1:samplesize)
-countsdf<-as.data.frame(counts)
-names(countsdf)<-names(grd[c(3,4,5,6,7)])
-
-countslf<-melt(countsdf)
-countslf$index<-rep(index,times=5)
-ggplot(countslf) +
-        geom_point(mapping = aes(x=index,y = value), colour = "black",size=1) +
-        facet_wrap(~variable) +
-        scale_x_continuous(name = "Stratum") +
-        scale_y_continuous(name = "Sample size",breaks=c(0,1,2,3,4))
