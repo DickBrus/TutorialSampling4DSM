@@ -2,6 +2,8 @@
 # AN EXISTING SAMPLE (LEGACY SAMPLE) WITH A CONDITIONED LATIN HYPERCUBE SAMPLE
 # CAN ALSO BE DONE WITH R PACKAGE SPSANN! SEE ARGUMENT points OF FUNCTION optimCLHS
 
+# CONTRARY TO SPSANN THE NUMBER OF MARGINAL STRATA IS EQUAL TO THE NUMBER OF ADDITIONAL POINTS
+# O1 IS DEFINED AS THE SUM OF THE ABSOLUTE DIFFERENCES OF THE SAMPLE PROPORTIONS AND POPULAION PROPORTIONS IN THE MARGINAL STRATA
 
 library(spcosa)
 library(sp)
@@ -50,31 +52,36 @@ ids <- which(mySample@isPriorPoint==F)
 mySample <- as(mySample, "SpatialPoints")
 mySample <- mySample[ids,]
 
-# Compute lower bounds of marginal strata
+# Compute breaks of marginal strata
 probs<-seq(from=0,to=1,length.out=samplesize+1)
-lb <- apply(grd[,3:7],MARGIN=2,FUN=function(x) quantile(x,probs=probs,type=3))
-lb <- lb[-length(probs),]
+breaks <- apply(grd[,3:7],MARGIN=2,FUN=function(x) quantile(x,probs=probs,type=3))
+
+#compute proportion of population units (pixels) in marginal strata
+counts.population <- lapply(1:length(col.cov), function (i) 
+  hist(as.data.frame(grid[,i])[,1], breaks[,i], plot = FALSE)$counts)
+counts.populationlf <- data.frame(counts=unlist(counts.population))
+popprop <- counts.populationlf/length(grid)
 
 #set relative weight of O1 for computing the LHS criterion (O1 is for coverage of marginal strata of covariates); 1-W01  is the relative weight for O3 (for correlation)
 wO1<-0.5
 
 #now start the annealing
-system.time(
 annealingResult <- anneal.cLHS(
     d = mySample,
     g = grid,
     legacy = legacy,
-    lb = lb,
+    breaks = breaks,
+    pp = popprop,
     wO1=wO1,
     R=R,
-    initialTemperature = 0.01,
+    initialTemperature = 0.02,
     coolingRate = 0.9,
     maxAccepted = 5*length(mySample),
     maxPermuted = 5*length(mySample),
     maxNoChange=10,
     verbose = "TRUE"
     )
-)
+
 
 save(annealingResult,file="LHSample_50(0.5).Rdata")
 load(file="LHSample_50(0.5).Rdata")

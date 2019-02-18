@@ -471,7 +471,7 @@ getCriterion.EK<-function(d,p,pars,perturbation,criterion)  {
 
 # Annealing function for cLHS
 
-anneal.cLHS<-function(d, g, legacy, lb, wO1, R,
+anneal.cLHS<-function(d, g, legacy, breaks, pp, wO1, R,
                       initialTemperature = 1, coolingRate = 0.9, maxAccepted = 10 * nrow(coordinates(d)),
                       maxPermuted=10* nrow(coordinates(d)),maxNoChange=nrow(coordinates(d)),verbose = getOption("verbose")) {
   
@@ -493,7 +493,7 @@ anneal.cLHS<-function(d, g, legacy, lb, wO1, R,
   }
   
   # compute the criterion
-  criterion <- getCriterion.cLHS(dall, g, lb, wO1,R)
+  criterion <- getCriterion.cLHS(dall, g, breaks, pp, wO1, R)
   
   # store criterion
   criterion_prv <- criterion
@@ -532,7 +532,7 @@ anneal.cLHS<-function(d, g, legacy, lb, wO1, R,
       }
       
       # compute the criterion of this new sample by using function getCriterion
-      criterion_p <- getCriterion.cLHS(dall_p, g, lb, wO1, R)
+      criterion_p <- getCriterion.cLHS(dall_p, g, breaks, pp, wO1, R)
       
       # accept/reject proposal by means of Metropolis criterion
       dE <- criterion_p["E"] - criterion["E"]
@@ -587,26 +587,22 @@ anneal.cLHS<-function(d, g, legacy, lb, wO1, R,
 }
 # Function for computing minimization criterion of cLHS
 
-getCriterion.cLHS<-function(d,g,lb,wO1,R)  {
+getCriterion.cLHS<-function(d,g,breaks,pp,wO1,R)  {
   #determine values of covariates at locations in d
   d <- SpatialPointsDataFrame(
     coords = d,
     data = over(d,g)                
   )
+
+  counts <- lapply(1:ncol(d), function (i) 
+    hist(as.data.frame(d[,i])[,1], breaks[,i], plot = FALSE)$counts
+  )
+  countslf <- data.frame(counts=unlist(counts))
+  sampleprop <- countslf/length(d)
   
-  #Determine in which stratum the sampling locations are
-  stratum<-matrix(nrow=length(d),ncol=ncol(d))
-  for ( i in 1:ncol(d) ) {
-    stratum[,i]<-findInterval(as.data.frame(d[,i])[,1],lb[,i],left.open = TRUE)
-  }
   
-  #count number of points in marginal strata
-  counts<-matrix(nrow=nrow(lb),ncol=ncol(d))
-  for (i in 1:nrow(lb)) {
-    counts[i,]<-apply(stratum, MARGIN=2, function(x,i) sum(x==i), i=i)
-  }
-  O1<-mean(abs(counts-1))
-  
+  O1<-sum(abs(sampleprop-popprop))
+
   #compute sum of absolute differences of correlations
   r<-cor(as.data.frame(d)[1:ncol(d)])
   dr <- abs(R-r)
