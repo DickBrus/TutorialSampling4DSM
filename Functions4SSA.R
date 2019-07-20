@@ -187,41 +187,41 @@ getCriterion.K<-function(d,p,model,nmax) {
 }
 
 
-
 # Annealing function for estimation of variogram and kriging
-
-#spcosam: SpatialPoints of spatial coverage sample
-anneal.EK<-function(d, g, spcosam, p, pars, perturbation=0.01, criterion,
-                  initialTemperature = 1, coolingRate = 0.9, maxAccepted = 10 * nrow(coordinates(d)),
-                  maxPermuted=10* nrow(coordinates(d)), maxNoChange=nrow(coordinates(d)), verbose = getOption("verbose")) {
-
-  if(!(class(d) %in% c("SpatialPoints","SpatialPointsDataFrame")))
-    stop("Error: d must be SpatialPoints(DataFrame)")
-  if(!(class(g) %in% c("SpatialPixels","SpatialPixelsDataFrame"))) 
-    stop("Error: g must be SpatialPixels(DataFrame)")
-  if(!(class(p) %in% c("SpatialPoints","SpatialPointsDataFrame")))
-    stop("Error: p must be SpatialPoints(DataFrame)")
+anneal.EK<-function(free, disc, fixed, eval, thetas, perturbation=0.01, criterion,
+                    initialTemperature = 1, coolingRate = 0.9, maxAccepted = 10 * nrow(coordinates(free)),
+                    maxPermuted=10* nrow(coordinates(free)), maxNoChange=nrow(coordinates(free)), verbose = getOption("verbose")) {
+  
+  if(!(class(free) %in% c("SpatialPoints","SpatialPointsDataFrame")))
+    stop("Error: free must be SpatialPoints(DataFrame)")
+  if(!(class(disc) %in% c("SpatialPixels","SpatialPixelsDataFrame"))) 
+    stop("Error: disc must be SpatialPixels(DataFrame)")
+  if(!(class(eval) %in% c("SpatialPoints","SpatialPointsDataFrame")))
+    stop("Error: eval must be SpatialPoints(DataFrame)")
   if(!(criterion %in% c("logdet","VV","AV","EAC"))) 
     stop("Error: criterion must be one of logdet, VV, AV or EAC")
   
   # set initial temperature
   T <- initialTemperature
   
-  # merge supplemental sample and spatial coverage sample (if present)
-  dall <- d
-  if(!missing(spcosam)){
-    dall <- rbind(d,spcosam)
+  # merge free and fixed sample, if present and only for criterion AV and EAC
+  sample <- free
+  if(!missing(fixed) & criterion %in% c("AV","EAC")){
+    sample <- rbind(free,fixed)
   }
   
   # compute the criterion (mean kriging variance)
-  E <- getCriterion.EK(dall,p,pars,perturbation,criterion)
+  if (criterion %in% c("logdet","VV")) {
+    E <- getCriterion.E(sample=sample,grid=fixed,eval=eval,thetas,perturbation,criterion)} else {
+    E <- getCriterion.EK(sample=sample,eval,thetas,perturbation,criterion)
+  }
   
   # store criterion
   E_prv <- E
   
   # Define structure for storing time series of criterion
   Eall<-NULL
-
+  
   # initialize number of zero changes of objective function
   nNoChange <-0
   
@@ -244,27 +244,30 @@ anneal.EK<-function(d, g, spcosam, p, pars, perturbation=0.01, criterion,
       nPermuted <- nPermuted + 1
       
       # propose new sample by making use of function permute
-      d_p <- permute(d, g)
-
+      free_p <- permute(free, disc)
+      
       # for KED overlay new sample with grid
-      if(length(names(p))>0) {
-      d_p <- SpatialPointsDataFrame(
-        coords = d_p,
-        data = d_p %over% g                
-      )}
-
-      #merge supplemental sample and spatial coverage sample
-      dall_p <- d_p
-      if(!missing(spcosam)){
-        dall_p <- rbind(d_p,spcosam)
+      if(length(names(eval))>0) {
+        free_p <- SpatialPointsDataFrame(
+          coords = free_p,
+          data = free_p %over% disc                
+        )}
+      
+      #merge proposed free sample and fixed sample when present
+      sample_p <- free_p
+      if(!missing(fixed) & criterion %in% c("AV","EAC")){
+        sample_p <- rbind(free_p,fixed)
       }
       
       # compute the criterion of this new sample by using function getCriterion
-      E_p <- getCriterion.EK(dall_p,p,pars,perturbation,criterion)
+      if (criterion %in% c("logdet","VV")) {
+        E_p <- getCriterion.E(sample=sample_p,grid=fixed,eval=eval,thetas,perturbation,criterion)} else {
+        E_p <- getCriterion.EK(sample=sample_p,eval,thetas,perturbation,criterion)
+        }
 
       # accept/reject proposal by means of Metropolis criterion
       dE <- E_p - E
-    
+      
       if (dE < 0) {
         nImproved <- nImproved + 1
         prob <- 1 # always accept improvements
@@ -274,7 +277,7 @@ anneal.EK<-function(d, g, spcosam, p, pars, perturbation=0.01, criterion,
       u <- runif(n = 1) # draw uniform deviate
       if (u < prob) { # accept proposal
         nAccepted <- nAccepted + 1
-        d <- d_p
+        free <- free_p
         E <- E_p
       }
       
@@ -298,7 +301,7 @@ anneal.EK<-function(d, g, spcosam, p, pars, perturbation=0.01, criterion,
                 T, E, nPermuted, nAccepted, nImproved, nAccepted / nPermuted)
       )
     }
-
+    
     # check on convergence
     if (nNoChange == maxNoChange) {
       break
@@ -312,131 +315,223 @@ anneal.EK<-function(d, g, spcosam, p, pars, perturbation=0.01, criterion,
   
   # return result
   list(
-    optSample=d,Criterion=Eall
+    optSample=free,Criterion=Eall
   )
 }
 
-getCriterion.EK<-function(d,p,pars,perturbation,criterion)  {
-  nobs <- length(d)
-  D <- spDists(d)
-  
-  C <- CorF(D,pars)
-  pars.pert <- pars
-  pC <- dC <- list()
-  for (i in 1:length(pars)) {
-    pars.pert[i] <- (1+perturbation)*pars[i]
-    pC[[i]] <- CorF(D,pars.pert)
-    dC[[i]] <- (pC[[i]]-C)/(pars[i]*perturbation)
-    pars.pert <- pars
+getCriterion.E<-function(sample,grid,eval,thetas,perturbation,criterion)  {
+  nobs <- length(sample)
+  #compute distance matrix of sample for variogram estimation
+  D <- spDists(sample)
+  A <- CorF(D,thetas)
+  thetas.pert <- thetas
+  pA <- dA <- list()
+  for (i in 1:length(thetas)) {
+    thetas.pert[i] <- (1+perturbation)*thetas[i]
+    pA[[i]] <- CorF(D,thetas.pert)
+    dA[[i]] <- (pA[[i]]-A)/(thetas[i]*perturbation)
+    thetas.pert <- thetas
   }
   
-  cholC <- try(chol(C),silent=TRUE)
-  if (is.character(cholC)){
+  cholA <- try(chol(A),silent=TRUE)
+  if (is.character(cholA)){
     return(1E20)} else {
-      # inverse of the covariance matrix
-      invC <- chol2inv(chol(C))
+      # inverse of the correlation matrix
+      invA <- chol2inv(chol(A))
       # compute Fisher information matrix, see Eq. 7 Geoderma paper Lark, 2002
-      F <- matrix(0,length(pars),length(pars))
-      for (i in 1:length(pars)){
-        for (j in i:length(pars)){
-          F[i,j]=F[j,i]=0.5*matrix.trace(invC%*%dC[[i]]%*%invC%*%dC[[j]])
+      I <- matrix(0,length(thetas),length(thetas))
+      for (i in 1:length(thetas)){
+        for (j in i:length(thetas)){
+          I[i,j]=I[j,i]=0.5*matrix.trace(invA%*%dA[[i]]%*%invA%*%dA[[j]])
         }
       }
       
-      cholF <- try(chol(F),silent=TRUE)
-      if (is.character(cholF)){
+      cholI <- try(chol(I),silent=TRUE)
+      if (is.character(cholI)){
+        return(1E20)} else {
+          
+          # inverse of the Fisher information matrix
+          invI <- chol2inv(chol(I))
+          
+          if(criterion=="logdet"){
+            logdet <- -1*determinant(I,logarithm=TRUE)$modulus #This is equal to determinant(invF,logarithm=T)$modulus
+            return(logdet)} else {          
+              
+              #compute distance matrix and correlation matrix of grid nodes
+              D <- spDists(grid)
+              A <- CorF(D,thetas)
+              #extend correlation matrix A with a column and row with ones (ordinary kriging)
+              nobs<-length(grid)
+              B <- matrix(nrow=nobs+1,ncol=nobs+1)
+              B[,] <- 0                      
+              B[1:nobs,1:nobs] <- A
+              B[1:nobs,nobs+1] <- 1
+              B[nobs+1,1:nobs] <- 1
+              #compute matrix with correlations between evaluation node and sampling points
+              D0 <- spDists(x=eval,y=grid)
+              A0 <- CorF(D0,thetas)
+              #compute perturbed correlation matrix (pA)
+              thetas.pert <- thetas
+              pA <- pA0 <- list()
+              for (i in 1:length(thetas)) {
+                thetas.pert[i] <- (1+perturbation)*thetas[i]
+                pA[[i]] <- CorF(D,thetas.pert)
+                pA0[[i]] <- CorF(D0,thetas.pert)
+                thetas.pert <- thetas
+              }
+              #extend pA and pA0 with ones
+              pB <- pb <-list()
+              for (i in 1:length(thetas)) {
+                pB[[i]] <- matrix(data=0,nrow=nobs+1,ncol=nobs+1)
+                pB[[i]][1:nobs,1:nobs] <-pA[[i]]
+                pB[[i]][1:nobs,nobs+1] <- 1
+                pB[[i]][nobs+1,1:nobs] <- 1
+                pb[[i]] <- cbind(pA0[[i]],1)
+              }
+              
+              #compute perturbed kriging variances (pvar)
+              var <- numeric(length=length(eval)) #kriging variance
+              pvar <- matrix(nrow=length(eval),ncol=length(thetas)) #matrix with perturbed kriging variances
+              for (i in 1:length(eval)) {
+                b <- c(A0[i,],1)
+                l <- solve(B,b)
+                var[i] <- 1 - l[1:nobs] %*% A0[i,] - l[nobs+1]
+                for (j in 1:length(thetas)){
+                  pl <- solve(pB[[j]],pb[[j]][i,])
+                  pvar[i,j] <- 1 - pl[1:nobs] %*% pA0[[j]][i,] - pl[nobs+1]
+                }
+              }
+              
+              #approximate partial derivatives of kriging variance to correlogram parameters
+              dvar <- list()
+              for (i in 1:length(thetas)) {
+                dvar[[i]] <- (pvar[,i]-var)/(thetas[i]*perturbation)
+              }         
+              #compute variance of kriging variance for evaluation points.
+              VV <- numeric(length=length(var))
+              for (i in 1:length(thetas)){
+                for (j in 1:length(thetas)){
+                  VVij <- invI[i,j]*dvar[[i]]*dvar[[j]]
+                  VV <- VV+VVij
+                }
+              }
+              MVV <- mean(VV)
+              return(MVV)
+            }
+        }
+    }
+}
+
+
+getCriterion.EK<-function(sample,eval,thetas,perturbation,criterion)  {
+  nobs <- length(sample)
+  D <- spDists(sample)
+  A <- CorF(D,thetas)
+  thetas.pert <- thetas
+  pA <- dA <- list()
+  for (i in 1:length(thetas)) {
+    thetas.pert[i] <- (1+perturbation)*thetas[i]
+    pA[[i]] <- CorF(D,thetas.pert)
+    dA[[i]] <- (pA[[i]]-A)/(thetas[i]*perturbation)
+    thetas.pert <- thetas
+  }
+  
+  cholA <- try(chol(A),silent=TRUE)
+  if (is.character(cholA)){
+    return(1E20)} else {
+      # inverse of the covariance matrix
+      invA <- chol2inv(chol(A))
+      # compute Fisher information matrix, see Eq. 7 Geoderma paper Lark, 2002
+      I <- matrix(0,length(thetas),length(thetas))
+      for (i in 1:length(thetas)){
+        for (j in i:length(thetas)){
+          I[i,j]=I[j,i]=0.5*matrix.trace(invA%*%dA[[i]]%*%invA%*%dA[[j]])
+        }
+      }
+      
+      cholI <- try(chol(I),silent=TRUE)
+      if (is.character(cholI)){
         return(1E20)} else {
           
         # inverse of the Fisher information matrix
-        invF <- chol2inv(chol(F))
+        invI <- chol2inv(chol(I))
         
-        if(criterion=="logdet"){
-          logdet <- -1*determinant(F,logarithm=TRUE)$modulus #This is equal to determinant(invF,logarithm=T)$modulus
-          return(logdet)} else {          
         # add dummy variable
-        if(class(d)=="SpatialPoints") {
-          d <- SpatialPointsDataFrame(
-            coords = d,
-            data = data.frame(dum = rep(1, times = length(d)))
+        if(class(sample)=="SpatialPoints") {
+          sample <- SpatialPointsDataFrame(
+            coords = sample,
+            data = data.frame(dum = rep(1, times = length(sample)))
           )
         } else {
-          d$dum=1
+          sample$dum=1
         }
         
-        if(length(names(p))>0) {
-          formul <- as.formula(paste("dum", paste(names(p), collapse = "+"), sep = "~"))} else {
+        if(length(names(eval))>0) {
+          formul <- as.formula(paste("dum", paste(names(eval), collapse = "+"), sep = "~"))} else {
           formul <- as.formula(paste("dum", paste(1, collapse = "+"), sep = "~"))
         }
         
-        m = model.frame(terms(formul), as(d, "data.frame"), na.action = na.fail)
+        m = model.frame(terms(formul), as(sample, "data.frame"), na.action = na.fail)
         term = attr(m, "terms")
         X = model.matrix(term, m)
         
         terms.f = delete.response(terms(formul))
-        mf.f = model.frame(terms.f, as(p,"data.frame")) #, na.action = na.action)
+        mf.f = model.frame(terms.f, as(eval,"data.frame"))
         x0 = model.matrix(terms.f, mf.f)
         
-        nrowA <- nobs + ncol(X)
-        A <- matrix(nrow=nrowA,ncol=nrowA)
-        A[,] <- 0                      
-        A[1:nobs,1:nobs] <- C
-        A[1:nobs,(nobs+1):nrowA] <- X
-        A[(nobs+1):nrowA,1:nobs] <- t(X)
+        nrowB <- nobs + ncol(X)
+        B <- matrix(nrow=nrowB,ncol=nrowB)
+        B[,] <- 0                      
+        B[1:nobs,1:nobs] <- A
+        B[1:nobs,(nobs+1):nrowB] <- X
+        B[(nobs+1):nrowB,1:nobs] <- t(X)
 
         #compute matrix with covariances between prediction nodes and sampling points
-        D0 <- spDists(x=p,y=d)
-        C0 <- CorF(D0,pars)
-
-        pars.pert <- pars
-        pA <- pC0 <- pb <-list()
-        for (i in 1:length(pars)) {
-          pA[[i]] <- A
-          pA[[i]][1:nobs,1:nobs] <- pC[[i]]
+        D0 <- spDists(x=eval,y=sample)
+        A0 <- CorF(D0,thetas)
+        #compute pB and pb by extending pA and pA0 with X
+        thetas.pert <- thetas
+        pB <- pA0 <- pb <-list()
+        for (i in 1:length(thetas)) {
+          pB[[i]] <- B
+          pB[[i]][1:nobs,1:nobs] <- pA[[i]]
           
-          pars.pert[i] <- (1+perturbation)*pars[i]
-          pC0[[i]] <- CorF(D0,pars.pert)
-          pb[[i]] <- cbind(pC0[[i]],x0)
-          pars.pert <- pars
+          thetas.pert[i] <- (1+perturbation)*thetas[i]
+          pA0[[i]] <- CorF(D0,thetas.pert)
+          pb[[i]] <- cbind(pA0[[i]],x0)
+          thetas.pert <- thetas
         }
         
-        L <- matrix(nrow=length(p),ncol=nobs) #matrix with kriging weights
-        pL <- array(dim=c(length(p),length(d),length(pars))) #array with perturbed kriging weights
-        var <- numeric(length=length(p)) #kriging variance
-        pvar <- matrix(nrow=length(p),ncol=length(pars)) #matrix with perturebed kriging variances
-        for (i in 1:length(p)) {
-          b <- c(C0[i,],x0[i,])
-          l <- solve(A,b)
+        L <- matrix(nrow=length(eval),ncol=nobs) #matrix with kriging weights
+        pL <- array(dim=c(length(eval),length(sample),length(thetas))) #array with perturbed kriging weights
+        var <- numeric(length=length(eval)) #kriging variance
+        pvar <- matrix(nrow=length(eval),ncol=length(thetas)) #matrix with perturbed kriging variances
+        for (i in 1:length(eval)) {
+          b <- c(A0[i,],x0[i,])
+          l <- solve(B,b)
           L[i,] <- l[1:nobs]
-          var[i] <- 1 - l[1:nobs] %*% C0[i,] - crossprod(l[1:nobs],X) %*% l[-(1:nobs)]
-          for (j in 1:length(pars)){
-            l <- solve(pA[[j]],pb[[j]][i,])
+#          var[i] <- 1 - l[1:nobs] %*% A0[i,] - crossprod(l[1:nobs],X) %*% l[-(1:nobs)] #Dick: klopt laatste term wel?
+          var[i] <- 1 - l[1:nobs] %*% A0[i,] - x0[i,] %*% l[-(1:nobs)]
+          for (j in 1:length(thetas)){
+            l <- solve(pB[[j]],pb[[j]][i,])
             pL[i,,j] <- l[1:nobs]
-            pvar[i,j] <- 1 - l[1:nobs] %*% pC0[[j]][i,] - crossprod(l[1:nobs],X) %*% l[-(1:nobs)]
+            pvar[i,j] <- 1 - l[1:nobs] %*% pA0[[j]][i,] - x0[i,] %*% l[-(1:nobs)]
           }
         }
                 
         dvar <- dL <- list()
-        for (j in 1:length(pars)) {
-          dvar[[j]] <- (pvar[,j]-var)/(pars[j]*perturbation)
-          dL[[j]] <- (pL[,,j] - L)/(pars[j]*perturbation)
+        for (i in 1:length(thetas)) {
+          dvar[[i]] <- (pvar[,i]-var)/(thetas[i]*perturbation)
+          dL[[i]] <- (pL[,,i] - L)/(thetas[i]*perturbation)
         }         
 
-        # compute standard deviations and correlation of variogram parameters from invF
-        sigma <- matrix(nrow=nrow(invF),ncol=ncol(invF))
-        diag(sigma) <- sqrt(diag(invF))
-        for (i in 1:(length(pars)-1)){
-          for (j in (i+1):length(pars)){
-            sigma[i,j]<-sigma[j,i]<-invF[i,j]/(sigma[i,i]*sigma[j,j])
-          }
-        }
-
         #tausq: expectation of additional variance due to uncertainty in ML estimates of variogram parameters, see Eq. 5 Lark and Marchant 2018
-        tausq <- numeric(length=length(p))
+        tausq <- numeric(length=length(eval))
         tausqk <- 0
-        for (k in 1:length(p)) {
+        for (k in 1:length(eval)) {
           for (i in 1:length(dL)){
             for (j in 1:length(dL)){
-              tausqijk <- sigma[i,j]*t(dL[[i]][k,])%*%C%*%dL[[j]][k,]
+              tausqijk <- invI[i,j]*t(dL[[i]][k,])%*%A%*%dL[[j]][k,]
               tausqk <- tausqk+tausqijk
             }
           }
@@ -444,7 +539,7 @@ getCriterion.EK<-function(d,p,pars,perturbation,criterion)  {
           tausqk<-0
         }
         varplus <- var+tausq
-        MVar <- mean(varplus)}
+        MVar <- mean(varplus)
         if (criterion=="AV"){
           return(MVar)
         }  else {
@@ -452,26 +547,21 @@ getCriterion.EK<-function(d,p,pars,perturbation,criterion)  {
         VV <- numeric(length=length(var))
         for (i in 1:length(dvar)){
           for (j in 1:length(dvar)){
-            VVij <- sigma[i,j]*dvar[[i]]*dvar[[j]]
+            VVij <- invI[i,j]*dvar[[i]]*dvar[[j]]
             VV <- VV+VVij
           }
         }
-        
-        MVarVar <- mean(VV)}
-        if (criterion=="VV"){
-          return(MVarVar)
-        } else {
-        
-        EAC <- mean(varplus+1/(2*varplus)*VV) #Estimation Adjusted Criterion of Zhu and Stein (2006), see Eq. 2.16
-        return(EAC)}
+        EAC <- mean(varplus+VV/(2*var)) #Estimation Adjusted Criterion of Zhu and Stein (2006), see Eq. 2.16
+        return(EAC)
       }
     }
+  }
 }
 
 
 # Annealing function for cLHS
 
-anneal.cLHS<-function(d, g, legacy, breaks, pp, wO1, R,
+anneal.cLHS<-function(d, g, legacy, lb, wO1, R,
                       initialTemperature = 1, coolingRate = 0.9, maxAccepted = 10 * nrow(coordinates(d)),
                       maxPermuted=10* nrow(coordinates(d)),maxNoChange=nrow(coordinates(d)),verbose = getOption("verbose")) {
   
@@ -493,7 +583,7 @@ anneal.cLHS<-function(d, g, legacy, breaks, pp, wO1, R,
   }
   
   # compute the criterion
-  criterion <- getCriterion.cLHS(dall, g, breaks, pp, wO1, R)
+  criterion <- getCriterion.cLHS(dall, g, lb, wO1,R)
   
   # store criterion
   criterion_prv <- criterion
@@ -532,7 +622,7 @@ anneal.cLHS<-function(d, g, legacy, breaks, pp, wO1, R,
       }
       
       # compute the criterion of this new sample by using function getCriterion
-      criterion_p <- getCriterion.cLHS(dall_p, g, breaks, pp, wO1, R)
+      criterion_p <- getCriterion.cLHS(dall_p, g, lb, wO1, R)
       
       # accept/reject proposal by means of Metropolis criterion
       dE <- criterion_p["E"] - criterion["E"]
@@ -587,22 +677,26 @@ anneal.cLHS<-function(d, g, legacy, breaks, pp, wO1, R,
 }
 # Function for computing minimization criterion of cLHS
 
-getCriterion.cLHS<-function(d,g,breaks,pp,wO1,R)  {
+getCriterion.cLHS<-function(d,g,lb,wO1,R)  {
   #determine values of covariates at locations in d
   d <- SpatialPointsDataFrame(
     coords = d,
     data = over(d,g)                
   )
-
-  counts <- lapply(1:ncol(d), function (i) 
-    hist(as.data.frame(d[,i])[,1], breaks[,i], plot = FALSE)$counts
-  )
-  countslf <- data.frame(counts=unlist(counts))
-  sampleprop <- countslf/length(d)
   
+  #Determine in which stratum the sampling locations are
+  stratum<-matrix(nrow=length(d),ncol=ncol(d))
+  for ( i in 1:ncol(d) ) {
+    stratum[,i]<-findInterval(as.data.frame(d[,i])[,1],lb[,i])
+  }
   
-  O1<-sum(abs(sampleprop-popprop))
-
+  #count number of points in marginal strata
+  counts<-matrix(nrow=nrow(lb),ncol=ncol(d))
+  for (i in 1:nrow(lb)) {
+    counts[i,]<-apply(stratum, MARGIN=2, function(x,i) sum(x==i), i=i)
+  }
+  O1<-mean(abs(counts-1))
+  
   #compute sum of absolute differences of correlations
   r<-cor(as.data.frame(d)[1:ncol(d)])
   dr <- abs(R-r)

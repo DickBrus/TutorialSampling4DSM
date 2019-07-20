@@ -2,64 +2,74 @@
 library(sp)
 library(ggplot2)
 
-#Define fucntion for simple random sampling of pairs of points with separation disatnce h
+#Define fucntion for simple random sampling of pairs of points with separation distance h
 
 SIpairs<-function(h,n,area){
-    i<-1
-    xy<-coordinates(area)
-    y<-matrix(nrow=n,ncol=2)
-    dx<-numeric(length=2)
-    while (i <= n) {
-        id1<-sample(x=1:length(area),1)
-        y[i,1]<-area$z[id1]
-        xy1st<-xy[id1,]
-        angle<-runif(n=1,min=0,max=2*pi)
-        dx[1]=h*sin(angle)
-        dx[2]=h*cos(angle)
-        xy2nd<-xy1st+dx
-        xy2nd<-as.data.frame(t(xy2nd))
-        coordinates(xy2nd)<-~s1+s2
-        res<-as.numeric(over(x=xy2nd,y=area))[1]
-        if (!is.na(res)) {y[i,2]<-res 
-                          i<-i+1}
-        rm(xy2nd)
-    }
-    ydf<-as.data.frame(y)
-    names(ydf)<-c("z1","z2")
-    ydf$h<-h
-    return(ydf)
+  topo <-as(getGridTopology(area),"data.frame")
+  cellsize <- topo$cellsize[1]
+  xy <- coordinates(area)
+  dxy<-numeric(length=2)
+  xypnts1 <- xypnts2 <-NULL
+  i<-1
+  while (i <= n) {
+    id1<-sample.int(n=length(area),size=1)
+    xypnt1<-xy[id1,]
+    xypnt1[1]<-jitter(xypnt1[1],amount=cellsize/2)
+    xypnt1[2]<-jitter(xypnt1[2],amount=cellsize/2)
+    angle<-runif(n=1,min=0,max=2*pi)
+    dxy[1]=h*sin(angle)
+    dxy[2]=h*cos(angle)
+    xypnt2<-xypnt1+dxy
+    xypnt2<-as.data.frame(t(xypnt2))
+    coordinates(xypnt2)<-~s1+s2
+    inArea<-as.numeric(over(x=xypnt2,y=area))[1]
+    if (!is.na(inArea)){
+      xypnts1<-rbind(xypnts1,xypnt1)
+      xypnts2<-rbind(xypnts2,as.data.frame(xypnt2))
+      i<-i+1
+      }
+    rm(xypnt1,xypnt2)
+  }
+  return(cbind(xypnts1,xypnts2))
 }
 
 #Read simulated field
-
-grd <- read.csv(file="Data/SimulatedField_1Exp(25).csv")
-names(grd)[3] <- "z"
+load(file="HunterValley4Practicals.RData")
+grd <- grdHunterValley
+names(grd)[c(1,2)] <- c("s1","s2")
 coordinates(grd) <- ~ s1+s2
 gridded(grd) <- T
 
-cellsize<-1
+#Insert separation distances
+h<-c(25, 50, 100, 200, 400)
 
-#Randomly select two points at fixed distance, and repeat this many times
+#Select all point pairs
 set.seed(314)
 samplesize<-100
-
-#Give separation distances in number of cells
-h<-c(1,3,9,27,54)
-h<-h*cellsize
 
 allpairs<-NULL
 for (i in 1:length(h)){
   pairs<-SIpairs(h=h[i],n=samplesize,area=grd)
-  allpairs <- rbind(allpairs,pairs)
+  allpairs <- rbind(allpairs,pairs,make.row.names=FALSE)
 }
 
+#Overlay with grid
+p1 <- allpairs[,c(1,2)]
+p2 <- allpairs[,c(3,4)]
+coordinates(p1) <- ~s1+s2
+z1<-over(x=p1,y=grd)[4]
+coordinates(p2) <- ~s1+s2
+z2<-over(x=p2,y=grd)[4]
+
+mysample <- data.frame(h=rep(h,each=samplesize),z1,z2)
+names(mysample)[c(2,3)] <- c("z1","z2")
 gammah<-vargammah<-numeric(length=length(h))
 
 for (i in 1:length(h)){
-  ids<-which(allpairs$h==h[i])
-  mysample<-allpairs[ids,]
-  gammah[i]<-mean((mysample$z1-mysample$z2)^2,na.rm=TRUE)/2 
-  vargammah[i]<-var((mysample$z1-mysample$z2)^2,na.rm=TRUE)/(samplesize*4)
+  ids<-which(mysample$h==h[i])
+  pairs.h<-mysample[ids,]
+  gammah[i]<-mean((pairs.h$z1-pairs.h$z2)^2,na.rm=TRUE)/2 
+  vargammah[i]<-var((pairs.h$z1-pairs.h$z2)^2,na.rm=TRUE)/(samplesize*4)
 }
 
 #Plot sample variogram
@@ -67,61 +77,54 @@ for (i in 1:length(h)){
 samplevariogram<-data.frame(h,gammah,vargammah)
 ggplot(data=samplevariogram) +
     geom_point(mapping = aes(x = h,y=gammah),size = 3) +
-    scale_x_continuous(name = "Separation distance",limits=c(0,60)) +
-    scale_y_continuous(name="Semivariance",limits=c(0,1))
+    scale_x_continuous(name = "Separation distance") +
+    scale_y_continuous(name="Semivariance",limits=c(0,NA))
 
 #Fit model
-
-spherical <- function(h, range, psill) {
-  h <- h/range
-  psill*ifelse(h < 1, (1.5 * h - 0.5 * h^3),1)
-}
 
 sphericalnugget <- function(h, range, psill, nugget) {
     h <- h/range
     nugget + psill*ifelse(h < 1, (1.5 * h - 0.5 * h^3),1)
 }
 
-exponential <- function(h, range, psill, nugget) {
-  h <- h/range
-  psill*(1-(exp(-h)))
-}
 
-exponentialnugget <- function(h, range, psill, nugget) {
-    h <- h/range
-    nugget + psill*(1-(exp(-h)))
-}
-
-
-fit.var <- nls(gammah~exponential(h,range,psill),
+fit.var <- nls(gammah~sphericalnugget(h,range,psill,nugget),
                data = samplevariogram,
-               start=list(psill=0.9, range=30),
+               start=list(psill=4, range=200,nugget=1),
                weights=1/vargammah,
+               algorithm="port",
+               lower=c(0,0,0),
                trace=T)
 
+coef(fit.var)
+
+#compute variance covariance matrix of estimated variogram parameters by boostrapping
+
 allpars<-NULL
-nboot<-10
+nboot<-100
 for (j in 1:nboot) {
   #select bootstrap sample for each lag and compute semivariance
   gammah<-vargammah<-numeric(length=length(h))
   for (i in 1:length(h)){
-    ids<-which(allpairs$h==h[i])
-    pairs<-allpairs[ids,]
+    ids<-which(mysample$h==h[i])
+    pairs<-mysample[ids,]
     mysampleids<-sample.int(samplesize,size=samplesize,replace=TRUE)
-    mysample<-pairs[mysampleids,]
-    gammah[i]<-mean((mysample$z1-mysample$z2)^2,na.rm=TRUE)/2 
-    vargammah[i]<-var((mysample$z1-mysample$z2)^2,na.rm=TRUE)/(samplesize*4)
+    mybtpsample<-pairs[mysampleids,]
+    gammah[i]<-mean((mybtpsample$z1-mybtpsample$z2)^2,na.rm=TRUE)/2 
+    vargammah[i]<-var((mybtpsample$z1-mybtpsample$z2)^2,na.rm=TRUE)/(samplesize*4)
   }
   
   
   #fit model
   samplevariogram<-data.frame(h,gammah,vargammah)
-  fittedvariogram <- nls(gammah~exponential(h,range,psill),
-                         data = samplevariogram,
-                         start=list(psill=0.9, range=30),
-                         weights=1/vargammah) 
+  tryCatch({fittedvariogram <- nls(gammah~sphericalnugget(h,range,psill,nugget),
+                        data = samplevariogram,
+                        start=list(psill=4, range=200,nugget=1),
+                        weights=1/vargammah,
+                        algorithm="port",
+                        lower=c(0,0,0))
   pars<-coef(fittedvariogram)
-  allpars<-rbind(allpars,pars)
+  allpars<-rbind(allpars,pars)},error=function(e){})
 }
 
 #compute variance-covariance matrix of two variogram parameters
