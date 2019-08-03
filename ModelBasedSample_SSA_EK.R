@@ -12,13 +12,6 @@ grd <- grdHunterValley
 coordinates(grd)<- ~Easting+Northing
 gridded(grd)<-TRUE
 
-# Define correlation function
-# Exponential
-CorF <- function(D, pars) {
-  A <- ifelse(D>.Machine$double.eps,pars[1]*exp(-D/pars[2]),1)
-  A
-}
-
 s <- 0.8 #ratio of spatial dependence c1/(c0+c1)
 range<-200
 thetas <- c(s,range)
@@ -52,6 +45,7 @@ annealingResult <- anneal.EK(
   disc = grd,
   fixed = mySCsample,
   eval = myevalsample,
+  model = "Exp",
   thetas = thetas,
   perturbation=perturbation,
   criterion="EAC",

@@ -35,29 +35,32 @@ permute<-function(d, g)  {
 #model: semivariogram (gstat object)
 #nmax: maxumum number of sampling points used in kriging
 
-anneal.K<-function(d, g, p, legacy, model, nmax = 50,
+anneal.K<-function(d, g, p, legacy=NULL, model, nmax = 50, prob=0.50,
                  initialTemperature = 1, coolingRate = 0.9, maxAccepted = 10 * nrow(coordinates(d)),
-                 maxPermuted=10* nrow(coordinates(d)), maxNoChange=nrow(coordinates(d)), verbose = getOption("verbose")) {
+                 maxPermuted=10*nrow(coordinates(d)), maxNoChange=nrow(coordinates(d)), verbose = getOption("verbose")) {
   if(!(class(d) %in% c("SpatialPoints","SpatialPointsDataFrame")))
     stop("Error: d must be SpatialPoints(DataFrame)")
   if(!(class(g) %in% c("SpatialPixels","SpatialPixelsDataFrame"))) 
     stop("Error: g must be SpatialPixels(DataFrame)")
   if(!(class(p) %in% c("SpatialPoints","SpatialPointsDataFrame")))
     stop("Error: p must be SpatialPoints(DataFrame)")
-  
-  stopifnot(is.na(proj4string(legacy)))
+  if(!is.null(legacy)){
+  stopifnot(is.na(proj4string(legacy)))}
+  if(prob <0 | prob > 1){
+    stop("Error: prob must be in open interval (0,1)")
+  }
 
   # set initial temperature
   T <- initialTemperature
   
   # merge infill sample and legacy sample
   dall <- d
-  if(!missing(legacy)){
+  if(!is.null(legacy)){
     dall <- rbind(d,legacy)
   }
   
   # compute the criterion (mean kriging variance)
-  E <- getCriterion.K(dall, p, model, nmax)
+  E <- getCriterion.K(dall, p, model, nmax, prob)
   
   # store criterion
   E_prv <- E
@@ -103,7 +106,7 @@ anneal.K<-function(d, g, p, legacy, model, nmax = 50,
       }
       
       # compute the criterion of this new sample by using function getCriterion
-      E_p <- getCriterion.K(dall_p, p, model, nmax)
+      E_p <- getCriterion.K(dall_p, p, model, nmax, prob)
       
       # accept/reject proposal by means of Metropolis criterion
       dE <- E_p - E
@@ -157,7 +160,7 @@ anneal.K<-function(d, g, p, legacy, model, nmax = 50,
 }
 
 
-getCriterion.K<-function(d,p,model,nmax) {
+getCriterion.K<-function(d,p,model,nmax,prob) {
   
   # add dummy variable
   if(class(d)=="SpatialPoints") {
@@ -183,12 +186,12 @@ getCriterion.K<-function(d,p,model,nmax) {
     nmax=nmax,
     debug.level = 0
   )
-  mean(result$var1.var)
+  quantile(result$var1.var,probs=prob)
 }
 
 
 # Annealing function for estimation of variogram and kriging
-anneal.EK<-function(free, disc, fixed, eval, thetas, perturbation=0.01, criterion,
+anneal.EK<-function(free, disc, fixed, esample, model, thetas, perturbation=0.01, criterion,
                     initialTemperature = 1, coolingRate = 0.9, maxAccepted = 10 * nrow(coordinates(free)),
                     maxPermuted=10* nrow(coordinates(free)), maxNoChange=nrow(coordinates(free)), verbose = getOption("verbose")) {
   
@@ -196,8 +199,8 @@ anneal.EK<-function(free, disc, fixed, eval, thetas, perturbation=0.01, criterio
     stop("Error: free must be SpatialPoints(DataFrame)")
   if(!(class(disc) %in% c("SpatialPixels","SpatialPixelsDataFrame"))) 
     stop("Error: disc must be SpatialPixels(DataFrame)")
-  if(!(class(eval) %in% c("SpatialPoints","SpatialPointsDataFrame")))
-    stop("Error: eval must be SpatialPoints(DataFrame)")
+  if(!(class(esample) %in% c("SpatialPoints","SpatialPointsDataFrame")))
+    stop("Error: esample must be SpatialPoints(DataFrame)")
   if(!(criterion %in% c("logdet","VV","AV","EAC"))) 
     stop("Error: criterion must be one of logdet, VV, AV or EAC")
   
@@ -212,8 +215,8 @@ anneal.EK<-function(free, disc, fixed, eval, thetas, perturbation=0.01, criterio
   
   # compute the criterion (mean kriging variance)
   if (criterion %in% c("logdet","VV")) {
-    E <- getCriterion.E(sample=sample,grid=fixed,eval=eval,thetas,perturbation,criterion)} else {
-    E <- getCriterion.EK(sample=sample,eval,thetas,perturbation,criterion)
+    E <- getCriterion.E(sample=sample,grid=fixed,esample=esample,model,thetas,perturbation,criterion)} else {
+    E <- getCriterion.EK(sample=sample,esample=esample,model,thetas,perturbation,criterion)
   }
   
   # store criterion
@@ -247,7 +250,7 @@ anneal.EK<-function(free, disc, fixed, eval, thetas, perturbation=0.01, criterio
       free_p <- permute(free, disc)
       
       # for KED overlay new sample with grid
-      if(length(names(eval))>0) {
+      if(length(names(esample))>0) {
         free_p <- SpatialPointsDataFrame(
           coords = free_p,
           data = free_p %over% disc                
@@ -261,8 +264,8 @@ anneal.EK<-function(free, disc, fixed, eval, thetas, perturbation=0.01, criterio
       
       # compute the criterion of this new sample by using function getCriterion
       if (criterion %in% c("logdet","VV")) {
-        E_p <- getCriterion.E(sample=sample_p,grid=fixed,eval=eval,thetas,perturbation,criterion)} else {
-        E_p <- getCriterion.EK(sample=sample_p,eval,thetas,perturbation,criterion)
+        E_p <- getCriterion.E(sample=sample_p,grid=fixed,esample=esample,model,thetas,perturbation,criterion)} else {
+        E_p <- getCriterion.EK(sample=sample_p,esample=esample,model,thetas,perturbation,criterion)
         }
 
       # accept/reject proposal by means of Metropolis criterion
@@ -319,16 +322,18 @@ anneal.EK<-function(free, disc, fixed, eval, thetas, perturbation=0.01, criterio
   )
 }
 
-getCriterion.E<-function(sample,grid,eval,thetas,perturbation,criterion)  {
+getCriterion.E<-function(sample,grid,esample,model,thetas,perturbation,criterion)  {
   nobs <- length(sample)
   #compute distance matrix of sample for variogram estimation
   D <- spDists(sample)
-  A <- CorF(D,thetas)
+  A <- variogramLine(vgm(model=model,psill=thetas[1],range=thetas[2],nugget=1-thetas[1]),
+                     dist_vector=D,covariance=TRUE)
   thetas.pert <- thetas
   pA <- dA <- list()
   for (i in 1:length(thetas)) {
     thetas.pert[i] <- (1+perturbation)*thetas[i]
-    pA[[i]] <- CorF(D,thetas.pert)
+    pA[[i]] <- variogramLine(vgm(model=model,psill=thetas.pert[1],range=thetas.pert[2],nugget=1-thetas.pert[1]),
+                             dist_vector=D,covariance=TRUE)
     dA[[i]] <- (pA[[i]]-A)/(thetas[i]*perturbation)
     thetas.pert <- thetas
   }
@@ -354,29 +359,33 @@ getCriterion.E<-function(sample,grid,eval,thetas,perturbation,criterion)  {
           invI <- chol2inv(chol(I))
           
           if(criterion=="logdet"){
-            logdet <- -1*determinant(I,logarithm=TRUE)$modulus #This is equal to determinant(invF,logarithm=T)$modulus
+            logdet <- determinant(invI,logarithm=TRUE)$modulus
             return(logdet)} else {          
               
               #compute distance matrix and correlation matrix of grid nodes
               D <- spDists(grid)
-              A <- CorF(D,thetas)
+              A <- variogramLine(vgm(model=model,psill=thetas[1],range=thetas[2],nugget=1-thetas[1]),
+                                 dist_vector=D,covariance=TRUE)
               #extend correlation matrix A with a column and row with ones (ordinary kriging)
               nobs<-length(grid)
-              B <- matrix(nrow=nobs+1,ncol=nobs+1)
-              B[,] <- 0                      
+              B <- matrix(data=0,nrow=nobs+1,ncol=nobs+1)
               B[1:nobs,1:nobs] <- A
               B[1:nobs,nobs+1] <- 1
               B[nobs+1,1:nobs] <- 1
               #compute matrix with correlations between evaluation node and sampling points
-              D0 <- spDists(x=eval,y=grid)
-              A0 <- CorF(D0,thetas)
+              D0 <- spDists(x=esample,y=grid)
+              A0 <- variogramLine(vgm(model=model,psill=thetas[1],range=thetas[2],nugget=1-thetas[1]),
+                                  dist_vector=D0,covariance=TRUE) 
+              b <- cbind(A0,1)
               #compute perturbed correlation matrix (pA)
               thetas.pert <- thetas
               pA <- pA0 <- list()
               for (i in 1:length(thetas)) {
                 thetas.pert[i] <- (1+perturbation)*thetas[i]
-                pA[[i]] <- CorF(D,thetas.pert)
-                pA0[[i]] <- CorF(D0,thetas.pert)
+                pA[[i]] <- variogramLine(vgm(model=model,psill=thetas.pert[1],range=thetas.pert[2],nugget=1-thetas.pert[1]),
+                                         dist_vector=D,covariance=TRUE) 
+                pA0[[i]] <- variogramLine(vgm(model=model,psill=thetas.pert[1],range=thetas.pert[2],nugget=1-thetas.pert[1]),
+                                          dist_vector=D0,covariance=TRUE)
                 thetas.pert <- thetas
               }
               #extend pA and pA0 with ones
@@ -390,9 +399,9 @@ getCriterion.E<-function(sample,grid,eval,thetas,perturbation,criterion)  {
               }
               
               #compute perturbed kriging variances (pvar)
-              var <- numeric(length=length(eval)) #kriging variance
-              pvar <- matrix(nrow=length(eval),ncol=length(thetas)) #matrix with perturbed kriging variances
-              for (i in 1:length(eval)) {
+              var <- numeric(length=length(esample)) #kriging variance
+              pvar <- matrix(nrow=length(esample),ncol=length(thetas)) #matrix with perturbed kriging variances
+              for (i in 1:length(esample)) {
                 b <- c(A0[i,],1)
                 l <- solve(B,b)
                 var[i] <- 1 - l[1:nobs] %*% A0[i,] - l[nobs+1]
@@ -423,15 +432,17 @@ getCriterion.E<-function(sample,grid,eval,thetas,perturbation,criterion)  {
 }
 
 
-getCriterion.EK<-function(sample,eval,thetas,perturbation,criterion)  {
+getCriterion.EK<-function(sample,esample,model,thetas,perturbation,criterion)  {
   nobs <- length(sample)
   D <- spDists(sample)
-  A <- CorF(D,thetas)
+  A <- variogramLine(vgm(model=model,psill=thetas[1],range=thetas[2],nugget=1-thetas[1]),
+                     dist_vector=D,covariance=TRUE)
   thetas.pert <- thetas
   pA <- dA <- list()
   for (i in 1:length(thetas)) {
     thetas.pert[i] <- (1+perturbation)*thetas[i]
-    pA[[i]] <- CorF(D,thetas.pert)
+    pA[[i]] <- variogramLine(vgm(model=model,psill=thetas.pert[1],range=thetas.pert[2],nugget=1-thetas.pert[1]),
+                             dist_vector=D,covariance=TRUE)
     dA[[i]] <- (pA[[i]]-A)/(thetas[i]*perturbation)
     thetas.pert <- thetas
   }
@@ -466,8 +477,8 @@ getCriterion.EK<-function(sample,eval,thetas,perturbation,criterion)  {
           sample$dum=1
         }
         
-        if(length(names(eval))>0) {
-          formul <- as.formula(paste("dum", paste(names(eval), collapse = "+"), sep = "~"))} else {
+        if(length(names(esample))>0) {
+          formul <- as.formula(paste("dum", paste(names(esample), collapse = "+"), sep = "~"))} else {
           formul <- as.formula(paste("dum", paste(1, collapse = "+"), sep = "~"))
         }
         
@@ -476,19 +487,19 @@ getCriterion.EK<-function(sample,eval,thetas,perturbation,criterion)  {
         X = model.matrix(term, m)
         
         terms.f = delete.response(terms(formul))
-        mf.f = model.frame(terms.f, as(eval,"data.frame"))
+        mf.f = model.frame(terms.f, as(esample,"data.frame"))
         x0 = model.matrix(terms.f, mf.f)
         
         nrowB <- nobs + ncol(X)
-        B <- matrix(nrow=nrowB,ncol=nrowB)
-        B[,] <- 0                      
+        B <- matrix(data=0,nrow=nrowB,ncol=nrowB)
         B[1:nobs,1:nobs] <- A
         B[1:nobs,(nobs+1):nrowB] <- X
         B[(nobs+1):nrowB,1:nobs] <- t(X)
 
         #compute matrix with covariances between prediction nodes and sampling points
-        D0 <- spDists(x=eval,y=sample)
-        A0 <- CorF(D0,thetas)
+        D0 <- spDists(x=esample,y=sample)
+        A0 <- variogramLine(vgm(model=model,psill=thetas[1],range=thetas[2],nugget=1-thetas[1]),
+                            dist_vector=D0,covariance=TRUE) 
         #compute pB and pb by extending pA and pA0 with X
         thetas.pert <- thetas
         pB <- pA0 <- pb <-list()
@@ -497,20 +508,20 @@ getCriterion.EK<-function(sample,eval,thetas,perturbation,criterion)  {
           pB[[i]][1:nobs,1:nobs] <- pA[[i]]
           
           thetas.pert[i] <- (1+perturbation)*thetas[i]
-          pA0[[i]] <- CorF(D0,thetas.pert)
+          pA0[[i]] <- variogramLine(vgm(model=model,psill=thetas.pert[1],range=thetas.pert[2],nugget=1-thetas.pert[1]),
+                                    dist_vector=D0,covariance=TRUE)
           pb[[i]] <- cbind(pA0[[i]],x0)
           thetas.pert <- thetas
         }
         
-        L <- matrix(nrow=length(eval),ncol=nobs) #matrix with kriging weights
-        pL <- array(dim=c(length(eval),length(sample),length(thetas))) #array with perturbed kriging weights
-        var <- numeric(length=length(eval)) #kriging variance
-        pvar <- matrix(nrow=length(eval),ncol=length(thetas)) #matrix with perturbed kriging variances
-        for (i in 1:length(eval)) {
+        L <- matrix(nrow=length(esample),ncol=nobs) #matrix with kriging weights
+        pL <- array(dim=c(length(esample),length(sample),length(thetas))) #array with perturbed kriging weights
+        var <- numeric(length=length(esample)) #kriging variance
+        pvar <- matrix(nrow=length(esample),ncol=length(thetas)) #matrix with perturbed kriging variances
+        for (i in 1:length(esample)) {
           b <- c(A0[i,],x0[i,])
           l <- solve(B,b)
           L[i,] <- l[1:nobs]
-#          var[i] <- 1 - l[1:nobs] %*% A0[i,] - crossprod(l[1:nobs],X) %*% l[-(1:nobs)] #Dick: klopt laatste term wel?
           var[i] <- 1 - l[1:nobs] %*% A0[i,] - x0[i,] %*% l[-(1:nobs)]
           for (j in 1:length(thetas)){
             l <- solve(pB[[j]],pb[[j]][i,])
@@ -526,9 +537,9 @@ getCriterion.EK<-function(sample,eval,thetas,perturbation,criterion)  {
         }         
 
         #tausq: expectation of additional variance due to uncertainty in ML estimates of variogram parameters, see Eq. 5 Lark and Marchant 2018
-        tausq <- numeric(length=length(eval))
+        tausq <- numeric(length=length(esample))
         tausqk <- 0
-        for (k in 1:length(eval)) {
+        for (k in 1:length(esample)) {
           for (i in 1:length(dL)){
             for (j in 1:length(dL)){
               tausqijk <- invI[i,j]*t(dL[[i]][k,])%*%A%*%dL[[j]][k,]
@@ -538,8 +549,8 @@ getCriterion.EK<-function(sample,eval,thetas,perturbation,criterion)  {
           tausq[k] <- tausqk
           tausqk<-0
         }
-        varplus <- var+tausq
-        MVar <- mean(varplus)
+        augmentedvar <- var+tausq
+        MVar <- mean(augmentedvar)
         if (criterion=="AV"){
           return(MVar)
         }  else {
@@ -551,7 +562,7 @@ getCriterion.EK<-function(sample,eval,thetas,perturbation,criterion)  {
             VV <- VV+VVij
           }
         }
-        EAC <- mean(varplus+VV/(2*var)) #Estimation Adjusted Criterion of Zhu and Stein (2006), see Eq. 2.16
+        EAC <- mean(augmentedvar+VV/(2*var)) #Estimation Adjusted Criterion of Zhu and Stein (2006), see Eq. 2.16
         return(EAC)
       }
     }

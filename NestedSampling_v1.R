@@ -10,19 +10,18 @@ library(ggplot2)
 #Define fucntion for random selection of point at some chosen distance from starting point
 SelectPoint<-function(start,h,area){
   dxy<-numeric(length=2)
-  repeat {
+  inArea<-NA
+  while(is.na(inArea)) {
     angle<-runif(n=1,min=0,max=2*pi)
     dxy[1]=h*sin(angle)
     dxy[2]=h*cos(angle)
     xypnt<-start+dxy
     coordinates(xypnt)<-~s1+s2
-    res<-as.numeric(over(x=xypnt,y=area))[1]
-    if (!is.na(res)) {xypoint<-as.data.frame(xypnt)
-    break}
+    inArea<-as.numeric(over(x=xypnt,y=area))[1]
   }
+  xypoint<-as.data.frame(xypnt)
   xypoint
 }
-
 #Read field of interest
 
 load(file="Data/HunterValley4Practicals.RData")
